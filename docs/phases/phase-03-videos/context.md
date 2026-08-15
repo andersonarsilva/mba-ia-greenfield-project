@@ -3,7 +3,7 @@ kind: phase
 name: phase-03-videos
 sources_mtime:
   docs/project-plan.md: "2026-08-04 17:46:10.647415960 -0300"
-  docs/decisions/technical-decisions-phase-03-videos.md: "2026-08-04 18:13:49.850616999 -0300"
+  docs/decisions/technical-decisions-phase-03-videos.md: "2026-08-04 18:34:18.153376823 -0300"
   docs/decisions/technical-decisions-openapi-docs-nestjs.md: "2026-08-04 18:17:20.947451299 -0300"
   docs/decisions/technical-decisions-next-frontend-config-base.md: "2026-08-04 18:17:20.947451299 -0300"
   docs/decisions/technical-decisions-next-frontend-msw-foundation.md: "2026-08-04 18:17:20.947451299 -0300"
@@ -11,6 +11,7 @@ sources_mtime:
   docs/phases/phase-01-configuracao-base/context.md: "2026-08-04 18:17:20.948892677 -0300"
   docs/phases/phase-02-auth/context.md: "2026-08-04 18:17:20.949451298 -0300"
   docs/phases/phase-02-auth-frontend/context.md: "2026-08-04 18:17:20.948935805 -0300"
+  docs/phases/phase-03-videos/library-refs.md: "2026-08-04 18:35:33.246108417 -0300"
   .claude/skills/testing-guide-nestjs-project/SKILL.md: "2026-08-04 17:46:10.618013280 -0300"
 ---
 
@@ -47,12 +48,14 @@ sources_mtime:
 
 | Ref | Source | Scope | Topic | Status | Decision | Libraries |
 |-----|--------|-------|-------|--------|----------|-----------|
-| phase-03-videos/TD-01 | phase | Backend | Message Queue Technology | decided | A (RabbitMQ) | — |
-| phase-03-videos/TD-02 | phase | Cross-layer | 10GB Upload Strategy | decided | A (Multipart presigned URLs direct to storage) | — |
+| phase-03-videos/TD-01 | phase | Backend | Message Queue Technology | decided | A (RabbitMQ) | amqplib |
+| phase-03-videos/TD-02 | phase | Cross-layer | 10GB Upload Strategy | decided | A (Multipart presigned URLs direct to storage) | @aws-sdk/client-s3, @aws-sdk/s3-request-presigner |
 | phase-03-videos/TD-03 | phase | Backend | Video Worker Architecture and FFmpeg Invocation | decided | A (NestJS standalone app, direct child_process spawn) | — |
-| phase-03-videos/TD-04 | phase | Backend | Unique Public URL Identifier | decided | A (nanoid public ID in dedicated unique column) | — |
+| phase-03-videos/TD-04 | phase | Backend | Unique Public URL Identifier | decided | A (nanoid public ID in dedicated unique column) | nanoid |
 | phase-03-videos/TD-05 | phase | Cross-layer | Streaming and Download Delivery | decided | A (Presigned GET; MinIO/S3 serves Range/206) | — |
 | phase-03-videos/TD-06 | phase | Backend | Video Status Lifecycle and Failure Handling | decided | A (draft → uploaded → processing → ready/error, retries + DLQ) | — |
+| phase-03-videos/TD-07 | phase | Backend | Storage Organization and Bucket Provisioning | decided | A (Single bucket, per-video key prefix, Compose init) | — |
+| phase-03-videos/TD-08 | phase | Backend | Abandoned Upload Cleanup Policy | decided | A (Lifecycle rule + draft sweep + abort endpoint) | @nestjs/schedule |
 
 _Source files:_
 
@@ -62,10 +65,10 @@ _Source files:_
 
 | Capability (from project-plan.md) | Covered by |
 |-----------------------------------|------------|
-| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-02 |
+| Serviço de armazenamento de arquivos (vídeos e thumbnails) | phase-03-videos/TD-02, phase-03-videos/TD-07 |
 | Serviço de processamento em segundo plano (filas) | phase-03-videos/TD-01 |
-| Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance | phase-03-videos/TD-02 |
-| Pré-cadastro automático do vídeo como rascunho ao iniciar o upload | phase-03-videos/TD-02, phase-03-videos/TD-06 |
+| Upload de vídeos com suporte a arquivos de até 10GB sem impacto na performance | phase-03-videos/TD-02, phase-03-videos/TD-08 |
+| Pré-cadastro automático do vídeo como rascunho ao iniciar o upload | phase-03-videos/TD-02, phase-03-videos/TD-06, phase-03-videos/TD-08 |
 | Processamento automático do vídeo após upload (extração de duração e metadados) | phase-03-videos/TD-03, phase-03-videos/TD-06 |
 | Geração automática de thumbnail a partir de um frame do vídeo | phase-03-videos/TD-03 |
 | URL única por vídeo, sem conflito com outros vídeos | phase-03-videos/TD-04 |
@@ -77,32 +80,46 @@ _Source files:_
 ### phase-03-videos/TD-01
 
 **Recommendation:** the phase needs exactly one queue with robust failure semantics (ack/nack, retry, DLQ), and RabbitMQ provides them in the broker itself, keeping the worker a genuinely independent container as drawn in the C4 diagram; it avoids adding Redis as a second stateful dependency whose only role would be carrying jobs. BullMQ is a close second and equally defensible if a Redis cache is already foreseen for later phases.
-**Libraries:** —
+**Libraries:** amqplib
 
 ### phase-03-videos/TD-02
 
 **Recommendation:** it is the native S3/MinIO mechanism that satisfies the 10GB requirement with zero API involvement in the byte path, per-part parallelism/retry, and no new infrastructure; the draft pre-registration slots naturally into the "initiate" step.
-**Libraries:** —
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
 
 ### phase-03-videos/TD-03
 
 **Recommendation:** same codebase, separate container, direct `child_process` invocation of `ffprobe` (metadata/duration, `-print_format json`) and `ffmpeg` (single-frame thumbnail extraction); it reuses everything phases 01–02 built while honoring the architecture's separate-worker container, and avoids depending on the archived `fluent-ffmpeg`.
 **Libraries:** —
+**Revisions:**
+- 2026-08-04 — Persisted metadata contract fixed: typed columns (`duration_seconds`, `width`, `height`, `codec`, `container`, `size_bytes`) plus a `jsonb` column holding the raw ffprobe output. Rationale: parameter clarified for the Data Model — typed columns keep listing/ordering queries indexable while the raw JSON avoids a migration each time a new field is needed.
 
 ### phase-03-videos/TD-04
 
 **Recommendation:** matches the platform reference model (YouTube-like short IDs), stays stable from draft creation onward regardless of later title edits, and the unique index + retry makes conflicts a non-issue; UUID stays as internal PK, consistent with previous phases.
-**Libraries:** —
+**Libraries:** nanoid
 
 ### phase-03-videos/TD-05
 
 **Recommendation:** it matches the architecture diagram literally (frontend streams from Object Storage), reuses MinIO's native, battle-tested Range implementation instead of hand-rolling one, and keeps the API on the control plane only, for both streaming and download.
 **Libraries:** —
+**Revisions:**
+- 2026-08-04 — Phase 03 access rule fixed: stream and download are owner-only (authenticated channel owner). Rationale: parameter tightened by phase boundary — visibility/publication lands in Phase 04 and anonymous viewing in Phase 05, so every video in this phase is an unpublished draft.
 
 ### phase-03-videos/TD-06
 
 **Recommendation:** the `uploaded` intermediate state distinguishes "waiting for worker" from "worker running" (useful for UX and stuck-job detection), and bounded retry + DLQ is the standard failure contract for queue consumers; fail-fast on a 10GB re-upload is an unacceptable user cost for the few lines of retry topology it saves.
 **Libraries:** —
+
+### phase-03-videos/TD-07
+
+**Recommendation:** per-video prefixes make asset co-location and future deletion trivial, a single bucket minimizes config surface for a phase where both asset types are delivered via presigned URLs anyway, and the init container keeps provisioning declarative and idempotent in Compose (matching how the rest of the local infra is provisioned).
+**Libraries:** —
+
+### phase-03-videos/TD-08
+
+**Recommendation:** native lifecycle handles the expensive half (10GB of parts) with zero code and total reliability, the cron sweep is trivial and keeps the DB honest, and the explicit abort endpoint covers the cooperative path; configure the lifecycle via `mc ilm` in the TD-07 init container to avoid the known client-persistence pitfalls.
+**Libraries:** @nestjs/schedule
 
 ## Inherited Decisions Detail
 

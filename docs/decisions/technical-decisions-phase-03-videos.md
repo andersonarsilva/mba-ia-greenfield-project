@@ -43,6 +43,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (RabbitMQ)** — the phase needs exactly one queue with robust failure semantics (ack/nack, retry, DLQ), and RabbitMQ provides them in the broker itself, keeping the worker a genuinely independent container as drawn in the C4 diagram; it avoids adding Redis as a second stateful dependency whose only role would be carrying jobs. BullMQ is a close second and equally defensible if a Redis cache is already foreseen for later phases.
 
 **Decision:** A (RabbitMQ)
+**Libraries:** amqplib
 
 ---
 
@@ -74,6 +75,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (multipart presigned URLs)** — it is the native S3/MinIO mechanism that satisfies the 10GB requirement with zero API involvement in the byte path, per-part parallelism/retry, and no new infrastructure; the draft pre-registration slots naturally into the "initiate" step.
 
 **Decision:** A (Multipart presigned URLs direct to storage)
+**Libraries:** @aws-sdk/client-s3, @aws-sdk/s3-request-presigner
 
 ---
 
@@ -106,6 +108,9 @@ _Subprojects in scope:_
 
 **Decision:** A (NestJS standalone app, same codebase, direct child_process spawn)
 
+**Revisions:**
+- 2026-08-04 — Persisted metadata contract fixed: typed columns (`duration_seconds`, `width`, `height`, `codec`, `container`, `size_bytes`) plus a `jsonb` column holding the raw ffprobe output. Rationale: parameter clarified for the Data Model — typed columns keep listing/ordering queries indexable while the raw JSON avoids a migration each time a new field is needed.
+
 ---
 
 ## TD-04: Unique Public URL Identifier
@@ -136,6 +141,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (`nanoid` public ID)** — matches the platform reference model (YouTube-like short IDs), stays stable from draft creation onward regardless of later title edits, and the unique index + retry makes conflicts a non-issue; UUID stays as internal PK, consistent with previous phases.
 
 **Decision:** A (nanoid public ID in dedicated unique column)
+**Libraries:** nanoid
 
 ---
 
@@ -167,6 +173,9 @@ _Subprojects in scope:_
 **Recommendation:** **Option A (presigned GET, storage serves Range/206)** — it matches the architecture diagram literally (frontend streams from Object Storage), reuses MinIO's native, battle-tested Range implementation instead of hand-rolling one, and keeps the API on the control plane only, for both streaming and download.
 
 **Decision:** A (Presigned GET; MinIO/S3 serves Range/206)
+
+**Revisions:**
+- 2026-08-04 — Phase 03 access rule fixed: stream and download are owner-only (authenticated channel owner). Rationale: parameter tightened by phase boundary — visibility/publication lands in Phase 04 and anonymous viewing in Phase 05, so every video in this phase is an unpublished draft.
 
 ---
 
@@ -255,6 +264,7 @@ _Subprojects in scope:_
 **Recommendation:** **Option A** — native lifecycle handles the expensive half (10GB of parts) with zero code and total reliability, the cron sweep is trivial and keeps the DB honest, and the explicit abort endpoint covers the cooperative path; configure the lifecycle via `mc ilm` in the TD-07 init container to avoid the known client-persistence pitfalls.
 
 **Decision:** A (Lifecycle rule + scheduled draft sweep + explicit abort endpoint)
+**Libraries:** @nestjs/schedule
 
 ## Decisions Summary
 
