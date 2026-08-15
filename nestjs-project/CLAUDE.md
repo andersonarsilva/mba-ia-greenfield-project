@@ -13,6 +13,9 @@ docker compose ps   # all services must show status "running"
 Then verify each infrastructure service is actually ready to accept connections — not just running:
 
 - **PostgreSQL:** `docker compose exec db pg_isready -U streamtube` — expect `accepting connections`
+- **MinIO:** `curl -sf http://localhost:9000/minio/health/live` — expect exit 0
+- **RabbitMQ:** `docker compose exec rabbitmq rabbitmq-diagnostics -q ping` — expect `Ping succeeded`
+- **Mailpit:** `curl -sf http://localhost:8025/api/v1/info` — expect JSON response
 
 Only start the NestJS dev server (`npm run start:dev`) when the user **explicitly** asks to run the application — never as part of "start the environment".
 
@@ -34,6 +37,12 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `mailpit` — SMTP sink (`1025`) + web UI/API (`8025`)
+- `minio` — S3-compatible object storage, API `9000`, console `9001` (`minio-init` creates the bucket on boot)
+- `rabbitmq` — message broker, AMQP `5672`, management UI/API `15672`, user/password `streamtube`
+- `video-worker` — video processing worker (ffmpeg/ffprobe); the **only** image with ffmpeg installed
+
+The `nestjs-api` container's main process is `tail -f /dev/null` — the API does **not** start automatically. After any `docker compose up`/restart, the dev server must be started manually (`npm run start:dev`) and migrations re-applied if the `db` volume was recreated (`npm run migration:run`).
 
 All verification and teardown commands run on the **host machine**:
 
@@ -71,6 +80,10 @@ npm run test:e2e                         # End-to-end tests (always with --runIn
 npx tsc --noEmit                         # Type-check (required before declaring a task done)
 npm run lint                             # ESLint with auto-fix
 npm run format                           # Prettier formatting
+
+npm run migration:run                    # Apply pending TypeORM migrations
+npm run migration:revert                 # Revert the last migration
+npm run start:worker                     # Video worker (also runs as the video-worker service)
 ```
 
 ### Host-only commands (Docker / connectivity probes)
@@ -88,10 +101,22 @@ Integration and e2e suites share a single test database. They **must** be run wi
 
 ```bash
 docker compose exec nestjs-api npm test -- --runInBand
-docker compose exec nestjs-api npm run test:e2e   # already configured
+docker compose exec nestjs-api npm run test:e2e   # --runInBand is baked into the script
 ```
 
 Parallel execution causes FK violations, deadlocks, and cross-suite contamination because suites truncate or seed shared tables concurrently.
+
+**Shared database warning:** integration/e2e tests run against the **same** `streamtube` database the dev server uses — there is no isolated test DB. Suites that drop/recreate tables (e.g., `migrations.integration-spec.ts`) can leave the dev schema inconsistent; if the API starts returning `relation "..." does not exist`, re-run `npm run migration:run`.
+
+**ffmpeg-dependent suites run in the `video-worker` container**, not in `nestjs-api` (which has no ffmpeg):
+
+```bash
+# Unit/integration suites under src/videos/worker/ that shell out to ffmpeg/ffprobe
+docker compose exec video-worker npm test -- --runInBand src/videos/worker/video-processor.service.integration-spec.ts
+
+# e2e that exercises real processing (streaming flow)
+docker compose exec video-worker npm run test:e2e -- videos-streaming
+```
 
 During active development, run only the tests related to the file being changed (`npm test -- path/to/file.spec.ts`). Before declaring a task done, run the full suite — see the global `CLAUDE.md` → "Definition of Done (Technical)".
 
@@ -99,7 +124,21 @@ During active development, run only the tests related to the file being changed 
 
 Commands that never exit (dev server, watch modes) must be run in background in the Bash tool — otherwise the agent blocks indefinitely waiting for the process to return.
 
-This applies to: `start:dev`, `start:prod`, `test:watch`, and any other persistent process.
+This applies to: `start:dev`, `start:prod`, `start:worker`, `test:watch`, and any other persistent process.
+
+## Video Worker
+
+The `video-worker` service runs `npm run start:worker` (`src/main.worker.ts` → `WorkerModule`), consuming jobs from the `video-processing` queue and shelling out to ffmpeg/ffprobe.
+
+- **No hot-reload:** `nest start --entryFile main.worker` has no `--watch`. After changing any code the worker uses (worker module, queue, storage, videos entities/config), run `docker compose restart video-worker` before testing — otherwise it keeps executing the old compiled code.
+- **Consumer resubscribe gap (known issue):** if the worker's AMQP connection is force-closed (e.g., by the reconnection integration test), `QueueService` reconnects for publishing but does **not** re-register the consumer — the `video-processing` queue ends up with 0 consumers. Fix: `docker compose restart video-worker`. A proper resubscribe is a documented follow-up task.
+
+## Object Storage (MinIO)
+
+Uploads use S3 multipart with presigned part URLs. The presigned URL embeds the internal hostname `minio:9000` in the AWS SigV4 signature (the `Host` header is signed), so:
+
+- The URL **cannot** be rewritten to `localhost` — the signature breaks.
+- Manual `PUT`s to presigned URLs must run from inside a container on the Compose network (e.g., `docker compose cp file nestjs-api:/tmp/ && docker compose exec nestjs-api curl -X PUT ...`).
 
 ## Test Type Selection
 
@@ -148,6 +187,19 @@ NestJS with standard module structure. Source lives in `src/`, compiled output i
 
 - Each domain feature gets its own module (e.g., `UsersModule`, `VideosModule`) registered in `AppModule`
 - Controllers handle HTTP routing; Services hold business logic; both are scoped to their module
+
+Two entrypoints share the same codebase:
+
+- `src/main.ts` → `AppModule` — the HTTP API (`nestjs-api` service)
+- `src/main.worker.ts` → `WorkerModule` — the queue consumer (`video-worker` service)
+
+Phase 03 modules:
+
+- `src/storage/` — `StorageService` (S3/MinIO client): multipart create/complete/abort, presigned part URLs, object streaming with range support. Config in `src/config/storage.config.ts`.
+- `src/queue/` — `QueueService` (amqplib): publishes/consumes video-processing jobs on the `video-processing` queue; declares work queue + DLX/DLQ (`video-processing.dlq`) on boot. Config in `src/config/queue.config.ts`.
+- `src/videos/` — `VideosController`/`VideosService` (upload lifecycle: draft → uploaded → processing → ready/error, streaming/download endpoints), `AbandonedUploadSweepService` (hourly `@Cron` marking stale drafts as error), and `src/videos/worker/` (consumer + `VideoProcessorService` running ffprobe/ffmpeg). Config in `src/config/videos.config.ts`.
+
+New env vars are validated by Joi in `src/config/env.validation.ts` — `STORAGE_*` and `QUEUE_URL` are **required** (boot fails without them); see `.env.example`.
 
 ## Code Conventions
 
