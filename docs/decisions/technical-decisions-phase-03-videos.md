@@ -266,6 +266,9 @@ _Subprojects in scope:_
 **Decision:** A (Lifecycle rule + scheduled draft sweep + explicit abort endpoint)
 **Libraries:** @nestjs/schedule
 
+**Revisions:**
+- 2026-08-04 — MinIO does not support the `AbortIncompleteMultipartUpload` lifecycle action (`PutBucketLifecycle`) — confirmed via MinIO's S3 API compatibility docs and the `mc ilm rule add` `LifecycleOptions` struct, which has no field for it (S3-only capability). The storage-side lifecycle half of Option A is dropped; the scheduled draft sweep (`@nestjs/schedule` cron calling `AbortMultipartUploadCommand` via the SDK) becomes the sole cleanup mechanism — it already covers both halves (aborting the multipart AND expiring the `draft` row) without relying on the unsupported lifecycle action. Rationale: discovered during SI-03.1 implementation; the sweep's SDK-driven abort is functionally equivalent (same outcome: incomplete parts removed after the configured window) and requires no MinIO-specific workaround.
+
 ## Decisions Summary
 
 | ID | Scope | Decision | Recommendation | Choice |

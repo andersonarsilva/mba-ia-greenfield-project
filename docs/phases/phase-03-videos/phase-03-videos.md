@@ -30,7 +30,7 @@ Entregar armazenamento de arquivos e processamento em segundo plano para vídeos
 
 1. Adicionar serviço `minio` ao `compose.yaml` — imagem `minio/minio`, portas API/console, volume nomeado e healthcheck (per `phase-03-videos/TD-07`)
 2. Adicionar serviço `rabbitmq` ao `compose.yaml` — imagem `rabbitmq` com plugin de management, volume nomeado e healthcheck (per `phase-03-videos/TD-01`)
-3. Adicionar serviço one-shot `minio-init` (imagem `minio/mc`) que roda `mc mb --ignore-existing` no bucket e `mc ilm` com `AbortIncompleteMultipartUpload`, dependendo do healthcheck do `minio` (per `phase-03-videos/TD-07`, `phase-03-videos/TD-08`)
+3. Adicionar serviço one-shot `minio-init` (imagem `minio/mc`) que roda `mc mb --ignore-existing` no bucket, dependendo do healthcheck do `minio` (per `phase-03-videos/TD-07`). A regra de lifecycle `AbortIncompleteMultipartUpload` do TD-08 original foi removida por revisão (2026-08-04) — MinIO não suporta essa ação de lifecycle (é exclusiva do S3 real); a limpeza de uploads abandonados fica inteiramente a cargo do sweep agendado do SI-03.11, que já aborta o multipart via SDK
 4. Declarar as chaves novas no `.env` / `.env.example` — endpoint, credenciais e bucket do storage, e URL do broker — usando nomes de serviço do Compose como host, nunca `localhost`
 
 **Tests:** _(empty — Infra)_
@@ -41,7 +41,6 @@ Entregar armazenamento de arquivos e processamento em segundo plano para vídeos
 
 - `docker compose ps` mostra `minio`, `rabbitmq` e `db` com status `running` e healthchecks saudáveis
 - O bucket de vídeos existe após `docker compose up -d`, sem erro em execuções repetidas (idempotência do `minio-init`)
-- A regra de lifecycle `AbortIncompleteMultipartUpload` está presente no bucket e é consultável via `mc ilm ls`
 - A UI de management do RabbitMQ responde na porta publicada
 
 ---
