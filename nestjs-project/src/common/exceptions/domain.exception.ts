@@ -48,3 +48,55 @@ export class TokenReuseDetectedException extends DomainException {
     );
   }
 }
+
+export class VideoNotFoundException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_FOUND', 404, 'Video not found');
+  }
+}
+
+export class FileTooLargeException extends DomainException {
+  constructor() {
+    super('FILE_TOO_LARGE', 413, 'File exceeds the 10GB upload limit');
+  }
+}
+
+export class UnsupportedMediaTypeException extends DomainException {
+  constructor() {
+    super(
+      'UNSUPPORTED_MEDIA_TYPE',
+      415,
+      'Content type is not a supported video format',
+    );
+  }
+}
+
+export class InvalidVideoStatusException extends DomainException {
+  constructor() {
+    super(
+      'INVALID_VIDEO_STATUS',
+      409,
+      'Video is not in the expected status for this operation',
+    );
+  }
+}
+
+export class VideoNotReadyException extends DomainException {
+  constructor() {
+    super(
+      'VIDEO_NOT_READY',
+      409,
+      'Video is not ready for streaming or download',
+    );
+  }
+}
+
+export class UploadExpiredException extends DomainException {
+  constructor() {
+    super(
+      'UPLOAD_EXPIRED',
+      409,
+      'Upload has expired and can no longer be completed',
+    );
+  }
+}

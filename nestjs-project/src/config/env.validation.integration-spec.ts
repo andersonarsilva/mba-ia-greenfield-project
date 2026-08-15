@@ -1,3 +1,4 @@
+import type { ValidationError } from 'joi';
 import { envValidationSchema } from './env.validation';
 
 const requiredEnv = {
@@ -6,13 +7,22 @@ const requiredEnv = {
   DB_NAME: 'db',
   JWT_SECRET: 'secret',
   JWT_REFRESH_SECRET: 'refresh-secret',
+  STORAGE_ACCESS_KEY_ID: 'storage-access-key',
+  STORAGE_SECRET_ACCESS_KEY: 'storage-secret-key',
+  STORAGE_BUCKET: 'storage-bucket',
+  QUEUE_URL: 'amqp://localhost:5672',
 };
 
-const validate = (env: Record<string, string>) =>
+interface ValidatedEnv {
+  error?: ValidationError;
+  value: Record<string, unknown>;
+}
+
+const validate = (env: Record<string, string>): ValidatedEnv =>
   envValidationSchema.validate(
     { ...requiredEnv, ...env },
     { allowUnknown: true, abortEarly: false },
-  );
+  ) as ValidatedEnv;
 
 describe('envValidationSchema — SWAGGER_ENABLED', () => {
   it('should reject SWAGGER_ENABLED with an invalid value', () => {

@@ -14,6 +14,7 @@ import {
   TokenReuseDetectedException,
 } from '../common/exceptions/domain.exception';
 import { MailService } from '../mail/mail.service';
+import { User } from '../users/entities/user.entity';
 import { UsersService } from '../users/users.service';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -138,6 +139,7 @@ describe('AuthService — register', () => {
       password: 'password123',
     });
 
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(usersService.createUserWithChannel).toHaveBeenCalledWith(
       'new@example.com',
       expect.any(String),
@@ -161,12 +163,14 @@ describe('AuthService — register', () => {
       password: 'password123',
     });
 
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         type: VerificationTokenType.EMAIL_CONFIRMATION,
         user_id: 'u1',
       }),
     );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.save).toHaveBeenCalledWith(createdToken);
   });
 
@@ -184,6 +188,7 @@ describe('AuthService — register', () => {
       password: 'password123',
     });
 
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendConfirmationEmail).toHaveBeenCalledWith(
       'new@example.com',
       'mynick',
@@ -281,14 +286,14 @@ describe('AuthService — confirm', () => {
       .createHash('sha256')
       .update(rawToken)
       .digest('hex');
-    const user = { id: 'u1', is_confirmed: false } as any;
+    const user = { id: 'u1', is_confirmed: false } as unknown as User;
     const record = {
       token_hash: tokenHash,
       type: VerificationTokenType.EMAIL_CONFIRMATION,
       used_at: null,
       expires_at: new Date(Date.now() + 60_000),
       user,
-    } as any;
+    } as unknown as VerificationToken;
 
     verificationTokenRepository.findOne.mockResolvedValue(record);
 
@@ -296,7 +301,9 @@ describe('AuthService — confirm', () => {
 
     expect(record.used_at).toBeInstanceOf(Date);
     expect(user.is_confirmed).toBe(true);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.save).toHaveBeenCalledWith(record);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(usersService.save).toHaveBeenCalledWith(user);
   });
 
@@ -316,7 +323,7 @@ describe('AuthService — confirm', () => {
       used_at: null,
       expires_at: new Date(Date.now() - 1000),
       user: { id: 'u1', is_confirmed: false },
-    } as any;
+    } as unknown as VerificationToken;
 
     verificationTokenRepository.findOne.mockResolvedValue(record);
 
@@ -348,6 +355,7 @@ describe('AuthService — resendConfirmation', () => {
     await expect(
       authService.resendConfirmation('unknown@example.com'),
     ).resolves.toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendConfirmationEmail).not.toHaveBeenCalled();
   });
 
@@ -361,6 +369,7 @@ describe('AuthService — resendConfirmation', () => {
     await expect(
       authService.resendConfirmation('confirmed@example.com'),
     ).resolves.toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendConfirmationEmail).not.toHaveBeenCalled();
   });
 
@@ -370,7 +379,7 @@ describe('AuthService — resendConfirmation', () => {
       email: 'user@example.com',
       is_confirmed: false,
       channel: { name: 'nick' },
-    } as any;
+    } as unknown as User;
     usersService.findByEmailWithChannel.mockResolvedValue(user);
 
     const qbMock = {
@@ -388,12 +397,14 @@ describe('AuthService — resendConfirmation', () => {
     await authService.resendConfirmation('user@example.com');
 
     expect(qbMock.execute).toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         type: VerificationTokenType.EMAIL_CONFIRMATION,
         user_id: 'u1',
       }),
     );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendConfirmationEmail).toHaveBeenCalledWith(
       'user@example.com',
       'nick',
@@ -479,6 +490,7 @@ describe('AuthService — login', () => {
     expect(result.refresh_token).toBeDefined();
     expect(typeof result.access_token).toBe('string');
     expect(typeof result.refresh_token).toBe('string');
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(refreshTokenRepository.save).toHaveBeenCalled();
   });
 });
@@ -487,7 +499,7 @@ describe('AuthService — refresh', () => {
   let authService: AuthService;
   let refreshTokenRepository: jest.Mocked<Repository<RefreshToken>>;
 
-  const mockUser = { id: 'u1', email: 'user@example.com' } as any;
+  const mockUser = { id: 'u1', email: 'user@example.com' } as unknown as User;
   const rawToken = 'a'.repeat(64);
   const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
 
@@ -513,7 +525,7 @@ describe('AuthService — refresh', () => {
       user: mockUser,
       expires_at: new Date(Date.now() - 1000),
       revoked_at: null,
-    } as any;
+    } as unknown as RefreshToken;
     refreshTokenRepository.findOne.mockResolvedValue(record);
 
     await expect(authService.refresh(rawToken)).rejects.toThrow(
@@ -529,14 +541,16 @@ describe('AuthService — refresh', () => {
       user: mockUser,
       expires_at: new Date(Date.now() + 60_000),
       revoked_at: null,
-    } as any;
+    } as unknown as RefreshToken;
     refreshTokenRepository.findOne.mockResolvedValue(record);
     refreshTokenRepository.create.mockReturnValue({} as any);
 
     const result = await authService.refresh(rawToken);
 
     expect(record.revoked_at).toBeInstanceOf(Date);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(refreshTokenRepository.save).toHaveBeenCalledWith(record);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(refreshTokenRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({ family: 'family-uuid', user_id: 'u1' }),
     );
@@ -554,13 +568,14 @@ describe('AuthService — refresh', () => {
       user: mockUser,
       expires_at: new Date(Date.now() + 60_000),
       revoked_at: revokedAt,
-    } as any;
+    } as unknown as RefreshToken;
     refreshTokenRepository.findOne.mockResolvedValue(record);
 
     const result = await authService.refresh(rawToken);
 
     expect(result.access_token).toBeDefined();
     expect(result.refresh_token).toBe(rawToken);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(refreshTokenRepository.createQueryBuilder).not.toHaveBeenCalled();
   });
 
@@ -573,7 +588,7 @@ describe('AuthService — refresh', () => {
       user: mockUser,
       expires_at: new Date(Date.now() + 60_000),
       revoked_at: revokedAt,
-    } as any;
+    } as unknown as RefreshToken;
     refreshTokenRepository.findOne.mockResolvedValue(record);
 
     const qbMock = {
@@ -618,7 +633,9 @@ describe('AuthService — logout', () => {
 
     await authService.logout('user-id-123');
 
-    expect(qbMock.set).toHaveBeenCalledWith({ revoked_at: expect.any(Date) });
+    expect(qbMock.set).toHaveBeenCalledWith({
+      revoked_at: expect.any(Date) as Date,
+    });
     expect(qbMock.where).toHaveBeenCalledWith('user_id = :userId', {
       userId: 'user-id-123',
     });
@@ -649,6 +666,7 @@ describe('AuthService — forgotPassword', () => {
     await expect(
       authService.forgotPassword('unknown@example.com'),
     ).resolves.toBeUndefined();
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendPasswordResetEmail).not.toHaveBeenCalled();
   });
 
@@ -657,7 +675,7 @@ describe('AuthService — forgotPassword', () => {
       id: 'u1',
       email: 'user@example.com',
       channel: { name: 'nick' },
-    } as any;
+    } as unknown as User;
     usersService.findByEmailWithChannel.mockResolvedValue(user);
 
     const qbMock = {
@@ -678,12 +696,14 @@ describe('AuthService — forgotPassword', () => {
     expect(qbMock.andWhere).toHaveBeenCalledWith('type = :type', {
       type: VerificationTokenType.PASSWORD_RESET,
     });
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         type: VerificationTokenType.PASSWORD_RESET,
         user_id: 'u1',
       }),
     );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(mailService.sendPasswordResetEmail).toHaveBeenCalledWith(
       'user@example.com',
       'nick',
@@ -724,7 +744,7 @@ describe('AuthService — resetPassword', () => {
       used_at: null,
       expires_at: new Date(Date.now() - 1000),
       user: { id: 'u1', password: 'oldhash' },
-    } as any;
+    } as unknown as VerificationToken;
     verificationTokenRepository.findOne.mockResolvedValue(record);
 
     await expect(
@@ -734,14 +754,14 @@ describe('AuthService — resetPassword', () => {
 
   it('hashes the new password, marks token used, and revokes refresh tokens', async () => {
     const rawToken = 'd'.repeat(64);
-    const user = { id: 'u1', password: 'oldhash' } as any;
+    const user = { id: 'u1', password: 'oldhash' } as unknown as User;
     const record = {
       token_hash: crypto.createHash('sha256').update(rawToken).digest('hex'),
       type: VerificationTokenType.PASSWORD_RESET,
       used_at: null,
       expires_at: new Date(Date.now() + 60_000),
       user,
-    } as any;
+    } as unknown as VerificationToken;
     verificationTokenRepository.findOne.mockResolvedValue(record);
 
     const qbMock = {
@@ -758,7 +778,9 @@ describe('AuthService — resetPassword', () => {
     expect(record.used_at).toBeInstanceOf(Date);
     expect(user.password).not.toBe('oldhash');
     expect(user.password).toMatch(/^\$argon2/);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(verificationTokenRepository.save).toHaveBeenCalledWith(record);
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- jest mock reference, not an unbound `this` call
     expect(usersService.save).toHaveBeenCalledWith(user);
     expect(qbMock.where).toHaveBeenCalledWith('user_id = :userId', {
       userId: 'u1',
